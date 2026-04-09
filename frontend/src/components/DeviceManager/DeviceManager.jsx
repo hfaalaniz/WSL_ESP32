@@ -488,9 +488,27 @@ export default function DeviceManager() {
       setSerialPort(null);
       setSerialStatus('idle');
       addLog('Puerto cerrado para flash (reconecta después)', 'info');
-      // Esperar 2s para que Windows libere el handle del COM
-      appendFwLog('Esperando que Windows libere el puerto (2s)...');
+      appendFwLog('Esperando liberación del puerto (2s)...');
       await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // Verificar que el puerto esté libre antes de llamar a esptool
+    appendFwLog(`Verificando que ${portName} esté disponible...`);
+    try {
+      const check = await fetch(`/api/firmware/check-port?port=${encodeURIComponent(portName)}`);
+      const checkData = await check.json();
+      if (!checkData.free) {
+        throw new Error(
+          `${portName} está ocupado por otro proceso.\n\n` +
+          `SOLUCIÓN: Recarga la página (F5) para liberar el handle del Web Serial, ` +
+          `luego flashea SIN conectar el puerto serial primero.`
+        );
+      }
+      appendFwLog(`${portName} disponible ✓`);
+    } catch (e) {
+      if (e.message.includes('ocupado')) throw e;
+      // Si el check-port falla por red, continuar de todas formas
+      appendFwLog(`Advertencia: no se pudo verificar el puerto (${e.message})`);
     }
 
     appendFwLog('Iniciando esptool...');
@@ -843,10 +861,22 @@ export default function DeviceManager() {
           <p style={s.cardDesc}>
             Selecciona el <code style={s.code}>.bin</code> generado en F3 y haz clic en <strong>Flashear</strong>.{' '}
             {(hw?.device?.mode === 'REMOTE' || hw?.device?.mode === 'AUTO') && hw?.device?.connection?.remote?.ip
-              ? <>Modo <strong>OTA</strong> — se envía por WiFi a <code style={s.code}>{hw.device.connection.remote.ip}</code> (el ESP32 debe tener el firmware WSL SCADA ya cargado).</>
-              : <>Modo <strong>USB</strong> — se flashea por esptool. Conecta el ESP32 por USB e ingresa el puerto COM.</>
+              ? <>Modo <strong>OTA</strong> — se envía por WiFi a <code style={s.code}>{hw.device.connection.remote.ip}</code>.</>
+              : <>Modo <strong>USB</strong> — flashea por esptool sin necesidad de conectar el puerto serial.</>
             }
           </p>
+
+          {/* Aviso si el serial está conectado en modo USB */}
+          {serialStatus === 'connected' && !(hw?.device?.mode === 'REMOTE' || hw?.device?.mode === 'AUTO') && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#451a0322', border: '1px solid #92400e', borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#fbbf24' }}>
+              <span style={{ flexShrink: 0 }}>⚠</span>
+              <span>
+                El puerto serial está conectado. Al flashear se cerrará automáticamente.
+                Si el error persiste, <strong>recarga la página (F5)</strong> para liberar
+                el handle y flashea sin conectar el serial primero.
+              </span>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={() => fwInputRef.current?.click()} style={s.btnSecondary}>

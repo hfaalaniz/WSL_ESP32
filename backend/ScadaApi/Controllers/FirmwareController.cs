@@ -20,6 +20,26 @@ public class FirmwareController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>Verifica si un puerto COM está libre (no ocupado por otro proceso).</summary>
+    [HttpGet("check-port")]
+    public IActionResult CheckPort([FromQuery] string port)
+    {
+        if (string.IsNullOrWhiteSpace(port))
+            return BadRequest(new { free = false, error = "Puerto requerido" });
+        try
+        {
+            using var sp = new System.IO.Ports.SerialPort(port, 115200);
+            sp.Open();
+            sp.Close();
+            return Ok(new { free = true, port });
+        }
+        catch (Exception ex)
+        {
+            var busy = ex.Message.Contains("denied") || ex.Message.Contains("busy") || ex.Message.Contains("Access");
+            return Ok(new { free = false, port, error = ex.Message, busy });
+        }
+    }
+
     /// <summary>Compila código Arduino con arduino-cli y retorna el binario en base64.</summary>
     [HttpPost("compile")]
     [ProducesResponseType<CompilationResult>(200)]
