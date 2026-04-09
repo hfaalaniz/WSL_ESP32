@@ -31,6 +31,7 @@ function generateFirmware(hw, script = '') {
     '#include <Arduino.h>',
     hasWifi  ? '#include <WiFi.h>'               : null,
     hasWifi  ? '#include <WebServer.h>'           : null,
+    hasWifi  ? '#include <Update.h>'              : null,
     '#include <ArduinoJson.h>',
     '#include <LittleFS.h>',
     (hasADS || hasMCP) ? '#include <Wire.h>'     : null,
@@ -249,6 +250,37 @@ void handleClearLogs() {
   LittleFS.remove(LOG_FILE);
   LittleFS.remove(ALARM_FILE);
   server.send(200, "application/json", "{\\"ok\\":true}");
+}
+
+// ── OTA Firmware Update ────────────────────────────────────────────────────────
+void handleFirmwareUpdate() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    Serial.printf("[OTA] Iniciando: %s\\n", upload.filename.c_str());
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      Update.printError(Serial);
+    }
+    Serial.printf("[OTA] Progreso: %u bytes\\n", upload.totalSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      Serial.printf("[OTA] Éxito: %u bytes. Reiniciando...\\n", upload.totalSize);
+    } else {
+      Update.printError(Serial);
+    }
+  }
+}
+void handleFirmwareUpdateDone() {
+  if (Update.hasError()) {
+    server.send(500, "application/json", "{\\"ok\\":false,\\"error\\":\\"Update failed\\"}");
+  } else {
+    server.send(200, "application/json", "{\\"ok\\":true}");
+    delay(500);
+    ESP.restart();
+  }
 }` : '';
 
   // SETUP
@@ -280,6 +312,7 @@ void handleClearLogs() {
       '  server.on("/api/logs",      HTTP_DELETE, handleClearLogs);',
       '  server.on("/api/script",    HTTP_POST,   handleScriptUpload);',
       '  server.on("/api/script",    HTTP_GET,    handleScriptGet);',
+      '  server.on("/api/firmware",  HTTP_POST,   handleFirmwareUpdateDone, handleFirmwareUpdate);',
       '  server.begin();',
     ] : [],
     '', '  // Script WSL — cargar desde LittleFS y ejecutar ON STARTUP',
