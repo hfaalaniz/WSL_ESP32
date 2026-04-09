@@ -39,6 +39,44 @@ public class FirmwareController : ControllerBase
     }
 
     /// <summary>
+    /// Flashea un .bin al ESP32 vía esptool con streaming SSE de logs en tiempo real.
+    /// Body: { portName, binPath, baudRate?, chip? }
+    /// </summary>
+    [HttpPost("flash-stream")]
+    [Produces("text/event-stream")]
+    public async Task FlashStream([FromBody] FlashRequest request, CancellationToken ct)
+    {
+        Response.Headers["Content-Type"]      = "text/event-stream";
+        Response.Headers["Cache-Control"]     = "no-cache";
+        Response.Headers["X-Accel-Buffering"] = "no";
+
+        await Response.StartAsync(ct);
+
+        _logger.LogInformation("SSE flash-stream puerto={Port} bin={Bin}", request.PortName, request.BinPath);
+
+        try
+        {
+            await foreach (var line in _compilationService.FlashStreamAsync(request, ct))
+            {
+                var sseData = $"data: {line}\n\n";
+                await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(sseData), ct);
+                await Response.Body.FlushAsync(ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error en flash-stream");
+            try
+            {
+                var err = $"data: ERROR: {ex.Message}\n\n";
+                await Response.Body.WriteAsync(Encoding.UTF8.GetBytes(err), ct);
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>
     /// Compila firmware con streaming SSE de logs en tiempo real.
     /// Cada evento SSE lleva "data: LOG: ..." o "data: RESULT:{json}" al final.
     /// </summary>

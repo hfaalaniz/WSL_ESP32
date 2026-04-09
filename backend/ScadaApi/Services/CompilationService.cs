@@ -300,6 +300,128 @@ public class CompilationService : ICompilationService
         return destPath;
     }
 
+    // ── Flash vía esptool ────────────────────────────────────────────────────
+
+    private static readonly string _esptoolPath =
+        @"C:\Users\Fabian\AppData\Local\Arduino15\packages\esp32\tools\esptool_py\5.1.0\esptool.exe";
+
+    public async IAsyncEnumerable<string> FlashStreamAsync(
+        FlashRequest request,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (!File.Exists(_esptoolPath))
+        {
+            yield return $"ERROR: esptool no encontrado en: {_esptoolPath}";
+            yield return "RESULT:{\"success\":false,\"error\":\"esptool no encontrado\"}";
+            yield break;
+        }
+
+        if (!File.Exists(request.BinPath))
+        {
+            yield return $"ERROR: Archivo .bin no encontrado: {request.BinPath}";
+            yield return "RESULT:{\"success\":false,\"error\":\"Archivo .bin no encontrado\"}";
+            yield break;
+        }
+
+        var chip     = request.Chip == "auto" ? "auto" : request.Chip;
+        var baud     = request.BaudRate > 0 ? request.BaudRate : 921600;
+        var portName = request.PortName;
+
+        // Para ESP32 clásico la dirección de flash es 0x1000 (bootloader offset)
+        var arguments = $"--chip {chip} --port {portName} --baud {baud} " +
+                        $"write_flash -z 0x1000 \"{request.BinPath}\"";
+
+        yield return $"LOG: esptool {arguments}";
+
+        var psi = new ProcessStartInfo
+        {
+            FileName               = _esptoolPath,
+            Arguments              = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+        };
+
+        Process? process;
+        string? startError = null;
+        try { process = Process.Start(psi); }
+        catch (Exception ex) { process = null; startError = ex.Message; }
+
+        if (startError != null)
+        {
+            yield return $"ERROR: No se pudo iniciar esptool: {startError}";
+            yield return $"RESULT:{{\"success\":false,\"error\":\"{EscapeJson(startError)}\"}}";
+            yield break;
+        }
+
+        if (process == null)
+        {
+            yield return "ERROR: Process.Start devolvió null";
+            yield return "RESULT:{\"success\":false,\"error\":\"No se pudo iniciar esptool\"}";
+            yield break;
+        }
+
+        var logChannel = System.Threading.Channels.Channel.CreateUnbounded<string?>();
+        process.OutputDataReceived += (_, e) => logChannel.Writer.TryWrite(e.Data);
+        process.ErrorDataReceived  += (_, e) => logChannel.Writer.TryWrite(e.Data);
+        process.Exited             += (_, _) => logChannel.Writer.TryComplete();
+        process.EnableRaisingEvents = true;
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        using var linked     = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+        bool timedOut = false;
+        var outputChannel = System.Threading.Channels.Channel.CreateUnbounded<string>();
+
+        var readerTask = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var line in logChannel.Reader.ReadAllAsync(linked.Token))
+                    if (line != null)
+                        await outputChannel.Writer.WriteAsync($"LOG: {line}", CancellationToken.None);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+            {
+                timedOut = true;
+                try { process.Kill(entireProcessTree: true); } catch { }
+            }
+            outputChannel.Writer.TryComplete(timedOut ? new TimeoutException() : null);
+        });
+
+        await foreach (var line in outputChannel.Reader.ReadAllAsync(CancellationToken.None))
+            yield return line;
+
+        await readerTask;
+
+        bool hasTimeout = false;
+        try { outputChannel.Reader.Completion.Wait(0); }
+        catch (AggregateException ae) when (ae.InnerException is TimeoutException) { hasTimeout = true; }
+
+        if (hasTimeout)
+        {
+            yield return "ERROR: Timeout 3 minutos en esptool";
+            yield return "RESULT:{\"success\":false,\"error\":\"Timeout esptool\"}";
+            yield break;
+        }
+
+        await process.WaitForExitAsync(CancellationToken.None);
+
+        if (process.ExitCode == 0)
+        {
+            yield return "LOG: ✓ Flash completado exitosamente";
+            yield return "RESULT:{\"success\":true}";
+        }
+        else
+        {
+            yield return $"ERROR: esptool terminó con exit code {process.ExitCode}";
+            yield return $"RESULT:{{\"success\":false,\"error\":\"esptool exit code {process.ExitCode}\"}}";
+        }
+    }
+
     private static string EscapeJson(string s) =>
         s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "");
 }

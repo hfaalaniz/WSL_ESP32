@@ -181,14 +181,18 @@ const BOARD_CATALOG = [
 //   flash: 4MB
 
 const AUTO_DETECT_RULES = [
-  { pattern: /ESP32-S3/i,              boardId: 'esp32-s3-devkit'   },
-  { pattern: /ESP32-S2/i,              boardId: 'esp32-s2-mini'     },
-  { pattern: /ESP32-C3/i,              boardId: 'esp32-c3-mini'     },
-  { pattern: /ESP32-D0WD|WROOM.*38|38.pin/i, boardId: 'esp32-devkit-38pin' },
-  { pattern: /ESP32-CAM|OV2640/i,      boardId: 'esp32-cam'         },
-  { pattern: /NodeMCU/i,               boardId: 'nodemcu-32s'       },
-  { pattern: /D32|LOLIN/i,             boardId: 'lolin32'           },
-  { pattern: /ESP32/i,                 boardId: 'esp32-devkit-v1'   }, // fallback genérico
+  { pattern: /ESP32-S3/i,                       boardId: 'esp32-s3-devkit'   },
+  { pattern: /ESP32-S2/i,                       boardId: 'esp32-s2-mini'     },
+  { pattern: /ESP32-C3/i,                       boardId: 'esp32-c3-mini'     },
+  { pattern: /WROOM-DA/i,                       boardId: 'esp32-wroom-da'    }, // antena dual — antes del genérico
+  { pattern: /WROOM-32U/i,                      boardId: 'esp32-wroom-32u'   },
+  { pattern: /ESP32-CAM|OV2640/i,               boardId: 'esp32-cam'         },
+  { pattern: /NodeMCU/i,                        boardId: 'nodemcu-32s'       },
+  { pattern: /D32|LOLIN/i,                      boardId: 'lolin32'           },
+  // ESP32-D0WD-V3 es el chip del WROOM-32 de 38 pines (tiene pines SD expuestos)
+  { pattern: /ESP32-D0WD-V3|ESP32-D0WDR2-V3/i,  boardId: 'esp32-devkit-38pin'},
+  { pattern: /ESP32-D0WD/i,                     boardId: 'esp32-devkit-v1'   },
+  { pattern: /ESP32/i,                          boardId: 'esp32-devkit-v1'   }, // fallback genérico
 ];
 
 // Extrae datos estructurados del texto del bootrom
@@ -251,6 +255,8 @@ export default function DeviceManager() {
   const [fwProgress,   setFwProgress]   = useState(0);
   const [fwStatus,     setFwStatus]     = useState('idle');  // idle|flashing|ok|error
   const [fwMsg,        setFwMsg]        = useState('');
+  const [fwLogs,       setFwLogs]       = useState([]);      // logs de esptool en tiempo real
+  const fwLogsEndRef = useRef(null);
 
   // Script upload
   const [scriptStatus, setScriptStatus] = useState('idle'); // idle|uploading|ok|error
@@ -285,7 +291,8 @@ export default function DeviceManager() {
       await port.open({ baudRate: serialBaud });
       setSerialPort(port);
       setSerialStatus('connected');
-      addLog(`Puerto abierto a ${serialBaud} bps`, 'ok');
+      addLog(`──── Puerto abierto a ${serialBaud} bps ────`, 'separator');
+      addLog('Esperando datos del dispositivo...', 'info');
 
       // Leer stream de datos
       const reader = port.readable.getReader();
@@ -323,6 +330,7 @@ export default function DeviceManager() {
   }, [serialPort, addLog]);
 
   useEffect(() => () => { readerRef.current?.cancel(); serialPort?.close().catch(() => {}); }, []);
+  useEffect(() => { fwLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [fwLogs]);
 
   // ── Detección automática de placa ─────────────────────────────────────────
   // Estrategia: leer los primeros 5 segundos del UART tras un reset de software.
@@ -438,7 +446,6 @@ export default function DeviceManager() {
     if (!fwFile) { setFwMsg('Selecciona un archivo .bin primero'); return; }
 
     const mode = hw?.device?.mode || 'SIMULATION';
-
     if (mode === 'SIMULATION') {
       setFwStatus('error');
       setFwMsg('Configura el dispositivo en modo LOCAL o REMOTE primero');
@@ -448,49 +455,126 @@ export default function DeviceManager() {
     setFwStatus('flashing');
     setFwProgress(0);
     setFwMsg('');
+    setFwLogs([]);
+
+    const appendFwLog = (line, type = 'info') =>
+      setFwLogs(prev => [...prev, { ts: new Date(), msg: line, type }]);
+
     addLog(`Iniciando flash de "${fwFile.name}" (${fmtSize(fwFile.size)})...`, 'info');
 
     try {
-      if (mode === 'LOCAL' && serialPort) {
-        // Flash vía Web Serial usando esptool-js (si disponible) o protocolo propio
-        // Simulamos progreso mientras no esté esptool-js integrado
-        addLog('Modo LOCAL: requiere esptool-js. Descargando .bin para flash manual...', 'info');
-        const url = URL.createObjectURL(fwFile);
-        const a   = Object.assign(document.createElement('a'), { href: url, download: fwFile.name });
-        a.click();
-        URL.revokeObjectURL(url);
-        setFwProgress(100);
-        setFwStatus('ok');
-        setFwMsg('Archivo listo — usa esptool.py o Arduino IDE para flashear');
-        addLog('Firmware descargado para flash manual', 'ok');
-      } else if (mode === 'REMOTE' || mode === 'AUTO') {
-        // OTA: enviar .bin vía HTTP multipart al endpoint /api/firmware
+      if (mode === 'REMOTE' || mode === 'AUTO') {
+        // OTA: enviar .bin vía HTTP multipart al endpoint /api/firmware del ESP32
         const ip   = hw.device.connection.remote.ip;
         const port = hw.device.connection.remote.port || 80;
+        if (!ip) throw new Error('IP del dispositivo no configurada en hardware');
+
+        appendFwLog(`Conectando a ${ip}:${port} vía OTA...`);
         const form = new FormData();
         form.append('firmware', fwFile);
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `http://${ip}:${port}/api/firmware`);
         xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) setFwProgress(Math.round(e.loaded / e.total * 100));
+          if (e.lengthComputable) {
+            const pct = Math.round(e.loaded / e.total * 100);
+            setFwProgress(pct);
+            appendFwLog(`Enviando... ${pct}%`);
+          }
         };
         await new Promise((resolve, reject) => {
-          xhr.onload  = () => {
-            if (xhr.status === 200) resolve(JSON.parse(xhr.responseText));
-            else reject(new Error(`HTTP ${xhr.status}`));
-          };
-          xhr.onerror = () => reject(new Error('Error de red'));
+          xhr.onload  = () => xhr.status === 200 ? resolve() : reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText}`));
+          xhr.onerror = () => reject(new Error(`Error de red al conectar a ${ip}:${port} — verifica que el ESP32 esté encendido y en la misma red`));
+          xhr.timeout = 30000;
+          xhr.ontimeout = () => reject(new Error('Timeout — el ESP32 no responde'));
           xhr.send(form);
         });
         setFwProgress(100);
         setFwStatus('ok');
-        setFwMsg('Firmware enviado — el ESP32 reiniciará');
+        setFwMsg('OTA completado — el ESP32 reiniciará');
+        appendFwLog('✓ Firmware enviado, el ESP32 reiniciará en segundos', 'ok');
         addLog('OTA completado', 'ok');
+
+      } else {
+        // LOCAL: usar backend con esptool — necesita el puerto COM y la ruta del .bin en disco
+        // El .bin debe estar guardado en Proyectos/ (guardado al compilar)
+        const proyectosBase = 'C:\\Users\\Fabian\\WSL_ESP32\\Proyectos';
+        const binName = fwFile.name;
+        const binPath = `${proyectosBase}\\${binName}`;
+
+        // Detectar puerto COM del serialPort conectado
+        let portName = '';
+        if (serialPort) {
+          try {
+            const info = await serialPort.getInfo();
+            // Web Serial no expone el nombre COM directamente — pedirlo al usuario
+            portName = prompt(`Puerto COM del ESP32 (ej: COM3):\n(El dispositivo está conectado, verifica en Administrador de dispositivos)`, 'COM3') || '';
+          } catch { portName = ''; }
+        }
+
+        if (!portName) {
+          portName = prompt('Ingresa el puerto COM del ESP32 (ej: COM3):', 'COM3') || '';
+        }
+        if (!portName) throw new Error('Puerto COM requerido para flashear en modo LOCAL');
+
+        appendFwLog(`Puerto: ${portName} | Archivo: ${binName}`);
+        appendFwLog('Iniciando esptool...');
+
+        const response = await fetch('/api/firmware/flash-stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            portName,
+            binPath,
+            baudRate: 921600,
+            chip: 'auto',
+          }),
+        });
+
+        if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalResult = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
+
+          for (const part of parts) {
+            const dataLine = part.startsWith('data: ') ? part.slice(6) : part;
+            if (!dataLine.trim()) continue;
+            if (dataLine.startsWith('RESULT:')) {
+              try { finalResult = JSON.parse(dataLine.slice(7)); } catch { }
+            } else {
+              const isError = dataLine.startsWith('ERROR:');
+              const text = dataLine.replace(/^(LOG|ERROR):\s*/, '');
+              appendFwLog(text, isError ? 'error' : 'info');
+              // Estimar progreso por líneas con %
+              const pctM = text.match(/(\d+)\s*%/);
+              if (pctM) setFwProgress(Math.min(99, parseInt(pctM[1])));
+            }
+          }
+        }
+
+        if (finalResult?.success) {
+          setFwProgress(100);
+          setFwStatus('ok');
+          setFwMsg('Flash completado — el ESP32 reiniciará');
+          appendFwLog('✓ Flash completado', 'ok');
+          addLog('Flash via esptool completado', 'ok');
+        } else {
+          throw new Error(finalResult?.error || 'Error desconocido en esptool');
+        }
       }
     } catch (e) {
       setFwStatus('error');
       setFwMsg(e.message);
+      appendFwLog(`✕ ${e.message}`, 'error');
       addLog(`Error en flash: ${e.message}`, 'error');
     }
   }, [fwFile, hw, serialPort, addLog]);
@@ -747,12 +831,25 @@ export default function DeviceManager() {
           </div>
 
           {/* Barra de progreso */}
-          {fwStatus === 'flashing' && (
+          {(fwStatus === 'flashing' || fwStatus === 'ok') && fwProgress > 0 && (
             <div style={s.progressWrap}>
-              <div style={{ ...s.progressBar, width: `${fwProgress}%` }} />
+              <div style={{ ...s.progressBar, width: `${fwProgress}%`, background: fwStatus === 'ok' ? '#22c55e' : '#3b82f6' }} />
               <span style={s.progressLabel}>{fwProgress}%</span>
             </div>
           )}
+
+          {/* Panel de logs de flash en tiempo real */}
+          {fwLogs.length > 0 && (
+            <div style={{ marginTop: 8, background: '#070d1a', border: '1px solid #1e293b', borderRadius: 6, maxHeight: 200, overflowY: 'auto', padding: '8px 12px' }}>
+              {fwLogs.map((e, i) => (
+                <div key={i} style={{ fontSize: 11, fontFamily: "'Fira Code', monospace", lineHeight: 1.5, color: e.type === 'error' ? '#ef4444' : e.type === 'ok' ? '#22c55e' : '#7dd3fc', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {e.msg}
+                </div>
+              ))}
+              <div ref={fwLogsEndRef} />
+            </div>
+          )}
+
           {fwMsg && (
             <div style={{ ...s.msgBox, color: fwStatus === 'error' ? '#ef4444' : '#22c55e' }}>
               {fwStatus === 'error' ? '✕ ' : '✓ '}{fwMsg}
@@ -807,7 +904,7 @@ export default function DeviceManager() {
             <div style={{ color: '#334155', fontSize: 12, padding: '8px 0' }}>Sin mensajes</div>
           ) : (
             serialLog.map((e, i) => (
-              <div key={i} style={{ ...s.logLine, color: e.type === 'error' ? '#ef4444' : e.type === 'ok' ? '#22c55e' : e.type === 'device' ? '#7dd3fc' : '#64748b' }}>
+              <div key={i} style={{ ...s.logLine, color: e.type === 'error' ? '#ef4444' : e.type === 'ok' ? '#22c55e' : e.type === 'device' ? '#7dd3fc' : e.type === 'separator' ? '#334155' : '#64748b' }}>
                 <span style={s.logTs}>{e.ts.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                 {e.msg}
               </div>
