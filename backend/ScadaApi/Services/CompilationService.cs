@@ -10,6 +10,10 @@ public class CompilationService : ICompilationService
     private readonly ILogger<CompilationService> _logger;
     private readonly string _arduinoCliPath = @"C:\Users\Fabian\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe";
 
+    // Carpeta donde se guardan los .bin compilados (relativa a la raíz del repo)
+    private static readonly string _proyectosDir = Path.GetFullPath(
+        Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\..\Proyectos"));
+
     public CompilationService(ILogger<CompilationService> logger)
     {
         _logger = logger;
@@ -119,7 +123,11 @@ public class CompilationService : ICompilationService
             result.Binary = Convert.ToBase64String(binData);
             result.Success = true;
 
-            _logger.LogInformation("Compilación exitosa: {BinSize} bytes", binData.Length);
+            // Guardar .bin en carpeta Proyectos/
+            var savedBinPath = await SaveBinAsync(binData, safeProjectName);
+            result.BinPath = savedBinPath;
+
+            _logger.LogInformation("Compilación exitosa: {BinSize} bytes → {BinPath}", binData.Length, savedBinPath);
         }
         catch (Exception ex)
         {
@@ -274,11 +282,22 @@ public class CompilationService : ICompilationService
             yield break;
         }
 
-        var binData = await File.ReadAllBytesAsync(binPath, CancellationToken.None);
-        var b64     = Convert.ToBase64String(binData);
+        var binData    = await File.ReadAllBytesAsync(binPath, CancellationToken.None);
+        var b64        = Convert.ToBase64String(binData);
+        var savedBin   = await SaveBinAsync(binData, safeProjectName);
+        var escapedBin = EscapeJson(savedBin);
 
         yield return $"LOG: ✓ Compilación exitosa — {binData.Length:N0} bytes";
-        yield return $"RESULT:{{\"success\":true,\"binary\":\"{b64}\"}}";
+        yield return $"LOG: Guardado en {savedBin}";
+        yield return $"RESULT:{{\"success\":true,\"binary\":\"{b64}\",\"binPath\":\"{escapedBin}\"}}";
+    }
+
+    private static async Task<string> SaveBinAsync(byte[] binData, string safeProjectName)
+    {
+        Directory.CreateDirectory(_proyectosDir);
+        var destPath = Path.Combine(_proyectosDir, $"{safeProjectName}.bin");
+        await File.WriteAllBytesAsync(destPath, binData);
+        return destPath;
     }
 
     private static string EscapeJson(string s) =>

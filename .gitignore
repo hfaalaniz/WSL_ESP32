@@ -41,6 +41,9 @@ obj/
 appsettings.Development.json
 appsettings.Production.json
 
+# Binarios compilados de firmware
+Proyectos/*.bin
+
 # Database
 *.db
 *.sqlite
