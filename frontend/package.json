@@ -1,0 +1,37 @@
+{
+  "name": "@wsl-scada/frontend",
+  "version": "1.0.0-alpha.1",
+  "type": "module",
+  "description": "SCADA Frontend - React + WSL Engine + Konva Canvas Editor",
+  "author": "Your Name",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "lint": "eslint src --ext .js,.jsx",
+    "format": "prettier --write 'src/**/*.{js,jsx}'"
+  },
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "konva": "^9.2.0",
+    "react-konva": "^18.2.0",
+    "@monaco-editor/react": "^4.6.0",
+    "recharts": "^2.10.0",
+    "zustand": "^4.4.0",
+    "zod": "^3.22.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.0",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0",
+    "@testing-library/react": "^14.1.0",
+    "@testing-library/jest-dom": "^6.1.0",
+    "eslint": "^8.54.0",
+    "prettier": "^3.1.0"
+  }
+}

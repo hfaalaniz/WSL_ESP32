@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Runtime
+tmp/
+temp/
+.env
+.env.local
+.env.*.local
+
+# Frontend specific
+.cache/
+coverage/
+.nyc_output/
+
+# Backend specific (C#)
+bin/
+obj/
+*.dll
+*.exe
+*.so
+.vs/
+.vscode/settings.json
+appsettings.Development.json
+appsettings.Production.json
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Tests
+.coverage
+coverage/
+*.lcov
+
+# Misc
+.env.example
+.editorconfig

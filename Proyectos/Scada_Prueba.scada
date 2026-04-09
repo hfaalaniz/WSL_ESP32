@@ -1,0 +1,312 @@
+##SCADA_FILE_V1
+##CREATED: 2026-04-09T13:19:45.990Z
+##PROJECT: Scada Prueba
+##ID: project-1775736350668
+##DESCRIPTION: Ejemplo de scada proyecto con esp32
+
+[HARDWARE]
+{
+  "device": {
+    "id": "EQU01",
+    "name": "Argenta",
+    "description": "Sala de maquinas",
+    "mode": "AUTO",
+    "connection": {
+      "local": {
+        "port": "COM3",
+        "baud": 115200
+      },
+      "remote": {
+        "ip": "192.168.1.45",
+        "port": 80,
+        "timeout_ms": 3000
+      }
+    }
+  },
+  "native": {
+    "digital_in": [
+      {
+        "gpio": 2,
+        "label": "Q.00",
+        "pull": "NONE",
+        "default": 0,
+        "resolution": 12,
+        "freq_hz": 1000
+      },
+      {
+        "gpio": 4,
+        "label": "Q.01",
+        "pull": "NONE",
+        "default": 0,
+        "resolution": 12,
+        "freq_hz": 1000
+      },
+      {
+        "gpio": 5,
+        "label": "Q.02",
+        "pull": "NONE",
+        "default": 0,
+        "resolution": 12,
+        "freq_hz": 1000
+      },
+      {
+        "gpio": 12,
+        "label": "Q.03",
+        "pull": "NONE",
+        "default": 0,
+        "resolution": 12,
+        "freq_hz": 1000
+      }
+    ],
+    "digital_out": [],
+    "analog_in": [],
+    "pwm_out": []
+  },
+  "expansion": {
+    "ic595": {
+      "enabled": true,
+      "count": 1,
+      "pins": {
+        "data": 20,
+        "clock": 21,
+        "latch": 22
+      },
+      "outputs": [
+        {
+          "index": 0,
+          "label": "OUT 0",
+          "default": 0
+        },
+        {
+          "index": 1,
+          "label": "OUT 1",
+          "default": 0
+        },
+        {
+          "index": 2,
+          "label": "OUT 2",
+          "default": 0
+        },
+        {
+          "index": 3,
+          "label": "OUT 3",
+          "default": 0
+        },
+        {
+          "index": 4,
+          "label": "OUT 4",
+          "default": 0
+        },
+        {
+          "index": 5,
+          "label": "OUT 5",
+          "default": 0
+        },
+        {
+          "index": 6,
+          "label": "OUT 6",
+          "default": 0
+        },
+        {
+          "index": 7,
+          "label": "OUT 7",
+          "default": 0
+        }
+      ]
+    },
+    "ic165": {
+      "enabled": true,
+      "count": 1,
+      "pins": {
+        "data": 23,
+        "clock": 25,
+        "load": 26
+      },
+      "inputs": [
+        {
+          "index": 0,
+          "label": "IN 0"
+        },
+        {
+          "index": 1,
+          "label": "IN 1"
+        },
+        {
+          "index": 2,
+          "label": "IN 2"
+        },
+        {
+          "index": 3,
+          "label": "IN 3"
+        },
+        {
+          "index": 4,
+          "label": "IN 4"
+        },
+        {
+          "index": 5,
+          "label": "IN 5"
+        },
+        {
+          "index": 6,
+          "label": "IN 6"
+        },
+        {
+          "index": 7,
+          "label": "IN 7"
+        }
+      ]
+    },
+    "ads1115": {
+      "enabled": false,
+      "count": 0,
+      "pins": {
+        "sda": "",
+        "scl": ""
+      },
+      "devices": []
+    },
+    "mcp23017": {
+      "enabled": false,
+      "count": 0,
+      "pins": {
+        "sda": "",
+        "scl": ""
+      },
+      "devices": []
+    }
+  }
+}
+
+[DESIGN]
+{
+  "screens": [
+    {
+      "id": "pantalla-1",
+      "name": "Pantalla 1",
+      "width": 1280,
+      "height": 720,
+      "background": "#0f172a",
+      "objects": [
+        {
+          "id": "rel-001",
+          "type": "relay",
+          "x": 56,
+          "y": 91,
+          "w": 72,
+          "h": 72,
+          "label": "ReleMotor1",
+          "tag": "",
+          "unit": "",
+          "rotation": 0,
+          "style": {
+            "colorOn": "#00d4aa",
+            "colorOff": "#4b5563",
+            "colorAlarm": "#ef4444"
+          },
+          "alarm": {
+            "enabled": false,
+            "min": null,
+            "max": null,
+            "severity": "WARN"
+          },
+          "interaction": {
+            "clickable": true,
+            "command": "TOGGLE",
+            "value": 1
+          }
+        },
+        {
+          "id": "rel-002",
+          "type": "relay",
+          "x": 161,
+          "y": 91,
+          "w": 72,
+          "h": 72,
+          "label": "ReleMotor2",
+          "tag": "",
+          "unit": "",
+          "rotation": 0,
+          "style": {
+            "colorOn": "#00d4aa",
+            "colorOff": "#4b5563",
+            "colorAlarm": "#ef4444"
+          },
+          "alarm": {
+            "enabled": false,
+            "min": null,
+            "max": null,
+            "severity": "WARN"
+          },
+          "interaction": {
+            "clickable": true,
+            "command": "TOGGLE",
+            "value": 1
+          }
+        },
+        {
+          "id": "rel-003",
+          "type": "relay",
+          "x": 275,
+          "y": 90,
+          "w": 72,
+          "h": 72,
+          "label": "ReleMotor3",
+          "tag": "",
+          "unit": "",
+          "rotation": 0,
+          "style": {
+            "colorOn": "#00d4aa",
+            "colorOff": "#4b5563",
+            "colorAlarm": "#ef4444"
+          },
+          "alarm": {
+            "enabled": false,
+            "min": null,
+            "max": null,
+            "severity": "WARN"
+          },
+          "interaction": {
+            "clickable": true,
+            "command": "TOGGLE",
+            "value": 1
+          }
+        }
+      ]
+    }
+  ]
+}
+
+[SCRIPT]
+// ─── Secuencia arranque motores ───────────────────────────
+// Motor 1 enciende al inicio
+// Motor 2 enciende 3 s después
+// Motor 3 enciende 3 s después del segundo
+
+VAR paso = 0
+VAR t_inicio = 0
+
+ON STARTUP
+    SET(ReleMotor1.OFF)
+    SET(ReleMotor2.OFF)
+    SET(ReleMotor3.OFF)
+    paso = 0
+    LOG("Secuencia preparada. Iniciando motor 1...")
+    SET(ReleMotor1.ON)
+    paso = 1
+    t_inicio = NOW
+END
+
+ON INTERVAL 1s
+    IF paso == 1 AND (NOW - t_inicio) >= 3 THEN
+        SET(ReleMotor2.ON)
+        paso = 2
+        t_inicio = NOW
+        LOG("Motor 2 encendido")
+    END
+    IF paso == 2 AND (NOW - t_inicio) >= 3 THEN
+        SET(ReleMotor3.ON)
+        paso = 3
+        LOG("Motor 3 encendido — secuencia completa")
+    END
+END
