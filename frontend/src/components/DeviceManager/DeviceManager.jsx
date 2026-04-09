@@ -679,6 +679,7 @@ export default function DeviceManager() {
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div style={s.root}>
 
       {/* ── Columna izquierda: Selector de placa ── */}
@@ -1035,6 +1036,7 @@ export default function DeviceManager() {
       </div>
     )}
 
+    </>
   );
 }
 
