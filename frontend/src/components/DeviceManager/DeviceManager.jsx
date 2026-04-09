@@ -258,6 +258,30 @@ export default function DeviceManager() {
   const [fwLogs,       setFwLogs]       = useState([]);      // logs de esptool en tiempo real
   const fwLogsEndRef = useRef(null);
 
+  // Modal personalizado para ingresar puerto COM
+  const [comModal, setComModal] = useState({ open: false, value: 'COM3', resolve: null });
+  const comModalInputRef = useRef(null);
+
+  // Abre el modal y retorna una Promise que resuelve con el valor ingresado (o null si cancela)
+  const askComPort = useCallback(() => new Promise(resolve => {
+    setComModal({ open: true, value: 'COM3', resolve });
+  }), []);
+
+  const comModalConfirm = () => {
+    const val = comModal.value.trim();
+    setComModal(m => ({ ...m, open: false }));
+    comModal.resolve(val || null);
+  };
+  const comModalCancel = () => {
+    setComModal(m => ({ ...m, open: false }));
+    comModal.resolve(null);
+  };
+
+  // Foco automático en el input cuando se abre el modal
+  useEffect(() => {
+    if (comModal.open) setTimeout(() => comModalInputRef.current?.select(), 50);
+  }, [comModal.open]);
+
   // Script upload
   const [scriptStatus, setScriptStatus] = useState('idle'); // idle|uploading|ok|error
   const [scriptMsg,    setScriptMsg]    = useState('');
@@ -447,11 +471,7 @@ export default function DeviceManager() {
     const proyectosBase = 'C:\\Users\\Fabian\\WSL_ESP32\\Proyectos';
     const binPath = `${proyectosBase}\\${binName}`;
 
-    const portName = prompt(
-      'Puerto COM del ESP32 (ej: COM3)\n' +
-      'Verifica en Administrador de dispositivos → Puertos (COM y LPT)',
-      'COM3'
-    )?.trim() || '';
+    const portName = await askComPort();
     if (!portName) throw new Error('Puerto COM requerido — operación cancelada');
 
     appendFwLog(`Puerto: ${portName}`);
@@ -506,7 +526,7 @@ export default function DeviceManager() {
       }
     }
     if (!finalResult?.success) throw new Error(finalResult?.error || 'Error en esptool');
-  }, [serialPort, addLog]);
+  }, [serialPort, addLog, askComPort]);
 
   // Flash OTA via HTTP (solo si el ESP32 ya tiene el firmware con /api/firmware)
   const flashViaOTA = useCallback(async (binFile, ip, port, appendFwLog) => {
@@ -927,6 +947,94 @@ export default function DeviceManager() {
       </div>
 
     </div>
+
+    {/* ── Modal: ingresar puerto COM ── */}
+    {comModal.open && (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(3px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+        onClick={comModalCancel}
+      >
+        <div style={{
+          background: '#0d1117', border: '1px solid #1e3a5f',
+          borderRadius: 12, padding: '28px 32px', width: 380,
+          boxShadow: '0 24px 64px rgba(0,0,0,0.7)',
+          display: 'flex', flexDirection: 'column', gap: 16,
+        }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 20 }}>⚡</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', fontFamily: "'JetBrains Mono',monospace" }}>
+                Flash via USB
+              </div>
+              <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
+                {currentProject?.name || 'Proyecto'}
+              </div>
+            </div>
+          </div>
+
+          {/* Descripción */}
+          <div style={{ fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+            Ingresa el puerto COM del ESP32 conectado por USB.<br />
+            Verifica en <span style={{ color: '#7dd3fc', fontFamily: 'monospace' }}>
+              Administrador de dispositivos → Puertos (COM y LPT)
+            </span>
+          </div>
+
+          {/* Input */}
+          <div>
+            <div style={{ fontSize: 11, color: '#475569', marginBottom: 6, fontFamily: "'JetBrains Mono',monospace", letterSpacing: 1 }}>
+              PUERTO COM
+            </div>
+            <input
+              ref={comModalInputRef}
+              value={comModal.value}
+              onChange={e => setComModal(m => ({ ...m, value: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') comModalConfirm(); if (e.key === 'Escape') comModalCancel(); }}
+              placeholder="COM3"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: '#0a0f1a', border: '1.5px solid #1e3a5f',
+                borderRadius: 6, padding: '10px 14px',
+                fontSize: 15, fontFamily: "'JetBrains Mono',monospace",
+                color: '#7dd3fc', outline: 'none',
+                letterSpacing: 2,
+              }}
+              onFocus={e => e.target.style.borderColor = '#3b82f6'}
+              onBlur={e => e.target.style.borderColor = '#1e3a5f'}
+            />
+          </div>
+
+          {/* Tip CP2102 */}
+          <div style={{ fontSize: 11, color: '#334155', background: '#0a0f1a', borderRadius: 6, padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <span style={{ color: '#f59e0b', flexShrink: 0 }}>ℹ</span>
+            <span>El CP2102 suele aparecer como <span style={{ color: '#94a3b8', fontFamily: 'monospace' }}>Silicon Labs CP210x</span> en Administrador de dispositivos.</span>
+          </div>
+
+          {/* Botones */}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+            <button
+              onClick={comModalCancel}
+              style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', border: '1px solid #1e293b', color: '#64748b', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace" }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={comModalConfirm}
+              style={{ padding: '8px 20px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#3b82f6', border: 'none', color: '#fff', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace" }}
+            >
+              ⚡ Flashear
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
   );
 }
 
