@@ -329,10 +329,55 @@ public class CompilationService : ICompilationService
 
         // Para ESP32 clásico la dirección de flash es 0x1000 (bootloader offset)
         var arguments = $"--chip {chip} --port {portName} --baud {baud} " +
-                        $"write_flash -z 0x1000 \"{request.BinPath}\"";
+                        $"write-flash -z 0x1000 \"{request.BinPath}\"";
 
         yield return $"LOG: esptool {arguments}";
 
+        // Retry hasta 3 veces si el puerto está ocupado (exit code 2 = PermissionError)
+        const int maxRetries = 3;
+        const int retryDelayMs = 2500;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            if (attempt > 1)
+            {
+                yield return $"LOG: Puerto ocupado — esperando {retryDelayMs / 1000}s antes del intento {attempt}/{maxRetries}...";
+                await Task.Delay(retryDelayMs, ct);
+            }
+
+            var (exitCode, lines, startErr) = await RunEsptoolAsync(arguments, ct);
+
+            foreach (var l in lines)
+                yield return l.StartsWith("ERROR:") ? l : $"LOG: {l}";
+
+            if (startErr != null)
+            {
+                yield return $"ERROR: No se pudo iniciar esptool: {startErr}";
+                yield return $"RESULT:{{\"success\":false,\"error\":\"{EscapeJson(startErr)}\"}}";
+                yield break;
+            }
+
+            if (exitCode == 0)
+            {
+                yield return "LOG: ✓ Flash completado exitosamente";
+                yield return "RESULT:{\"success\":true}";
+                yield break;
+            }
+
+            // exit code 2 = puerto ocupado → reintentar
+            bool portBusy = lines.Any(l => l.Contains("PermissionError") || l.Contains("port is busy") || l.Contains("could not open port"));
+            if (portBusy && attempt < maxRetries)
+                continue;
+
+            yield return $"ERROR: esptool terminó con exit code {exitCode}";
+            yield return $"RESULT:{{\"success\":false,\"error\":\"esptool exit code {exitCode}\"}}";
+            yield break;
+        }
+    }
+
+    private async Task<(int ExitCode, List<string> Lines, string? StartError)> RunEsptoolAsync(
+        string arguments, CancellationToken ct)
+    {
         var psi = new ProcessStartInfo
         {
             FileName               = _esptoolPath,
@@ -348,20 +393,10 @@ public class CompilationService : ICompilationService
         try { process = Process.Start(psi); }
         catch (Exception ex) { process = null; startError = ex.Message; }
 
-        if (startError != null)
-        {
-            yield return $"ERROR: No se pudo iniciar esptool: {startError}";
-            yield return $"RESULT:{{\"success\":false,\"error\":\"{EscapeJson(startError)}\"}}";
-            yield break;
-        }
+        if (startError != null || process == null)
+            return (-1, [], startError ?? "Process.Start devolvió null");
 
-        if (process == null)
-        {
-            yield return "ERROR: Process.Start devolvió null";
-            yield return "RESULT:{\"success\":false,\"error\":\"No se pudo iniciar esptool\"}";
-            yield break;
-        }
-
+        var lines = new List<string>();
         var logChannel = System.Threading.Channels.Channel.CreateUnbounded<string?>();
         process.OutputDataReceived += (_, e) => logChannel.Writer.TryWrite(e.Data);
         process.ErrorDataReceived  += (_, e) => logChannel.Writer.TryWrite(e.Data);
@@ -373,53 +408,20 @@ public class CompilationService : ICompilationService
         using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
         using var linked     = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
-        bool timedOut = false;
-        var outputChannel = System.Threading.Channels.Channel.CreateUnbounded<string>();
-
-        var readerTask = Task.Run(async () =>
+        try
         {
-            try
-            {
-                await foreach (var line in logChannel.Reader.ReadAllAsync(linked.Token))
-                    if (line != null)
-                        await outputChannel.Writer.WriteAsync($"LOG: {line}", CancellationToken.None);
-            }
-            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-            {
-                timedOut = true;
-                try { process.Kill(entireProcessTree: true); } catch { }
-            }
-            outputChannel.Writer.TryComplete(timedOut ? new TimeoutException() : null);
-        });
-
-        await foreach (var line in outputChannel.Reader.ReadAllAsync(CancellationToken.None))
-            yield return line;
-
-        await readerTask;
-
-        bool hasTimeout = false;
-        try { outputChannel.Reader.Completion.Wait(0); }
-        catch (AggregateException ae) when (ae.InnerException is TimeoutException) { hasTimeout = true; }
-
-        if (hasTimeout)
+            await foreach (var line in logChannel.Reader.ReadAllAsync(linked.Token))
+                if (line != null) lines.Add(line);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
         {
-            yield return "ERROR: Timeout 3 minutos en esptool";
-            yield return "RESULT:{\"success\":false,\"error\":\"Timeout esptool\"}";
-            yield break;
+            try { process.Kill(entireProcessTree: true); } catch { }
+            lines.Add("ERROR: Timeout 3 minutos en esptool");
+            return (-1, lines, null);
         }
 
         await process.WaitForExitAsync(CancellationToken.None);
-
-        if (process.ExitCode == 0)
-        {
-            yield return "LOG: ✓ Flash completado exitosamente";
-            yield return "RESULT:{\"success\":true}";
-        }
-        else
-        {
-            yield return $"ERROR: esptool terminó con exit code {process.ExitCode}";
-            yield return $"RESULT:{{\"success\":false,\"error\":\"esptool exit code {process.ExitCode}\"}}";
-        }
+        return (process.ExitCode, lines, null);
     }
 
     private static string EscapeJson(string s) =>

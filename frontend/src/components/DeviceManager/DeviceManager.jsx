@@ -479,7 +479,7 @@ export default function DeviceManager() {
 
     // Cerrar el puerto Web Serial si está abierto — esptool necesita acceso exclusivo
     if (serialPort) {
-      appendFwLog('Cerrando conexión serial para liberar el puerto...');
+      appendFwLog('Cerrando conexión serial...');
       try {
         readerRef.current?.cancel();
         readerRef.current = null;
@@ -488,8 +488,9 @@ export default function DeviceManager() {
       setSerialPort(null);
       setSerialStatus('idle');
       addLog('Puerto cerrado para flash (reconecta después)', 'info');
-      // Pequeña pausa para que el SO libere el puerto
-      await new Promise(r => setTimeout(r, 800));
+      // Esperar 2s para que Windows libere el handle del COM
+      appendFwLog('Esperando que Windows libere el puerto (2s)...');
+      await new Promise(r => setTimeout(r, 2000));
     }
 
     appendFwLog('Iniciando esptool...');
