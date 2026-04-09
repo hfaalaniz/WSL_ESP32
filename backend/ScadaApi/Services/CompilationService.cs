@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 using ScadaApi.DTOs.Firmware;
 
 namespace ScadaApi.Services;
@@ -9,14 +10,13 @@ public class CompilationService : ICompilationService
 {
     private readonly ILogger<CompilationService> _logger;
     private readonly string _arduinoCliPath = @"C:\Users\Fabian\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe";
+    private readonly string _proyectosDir;
 
-    // Carpeta donde se guardan los .bin compilados (relativa a la raíz del repo)
-    private static readonly string _proyectosDir = Path.GetFullPath(
-        Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\..\Proyectos"));
-
-    public CompilationService(ILogger<CompilationService> logger)
+    public CompilationService(ILogger<CompilationService> logger, IConfiguration config)
     {
         _logger = logger;
+        _proyectosDir = config["ProyectosDir"]
+            ?? Path.Combine(AppContext.BaseDirectory, "Proyectos");
     }
 
     public async Task<CompilationResult> CompileAsync(CompileRequest request)
@@ -292,7 +292,7 @@ public class CompilationService : ICompilationService
         yield return $"RESULT:{{\"success\":true,\"binary\":\"{b64}\",\"binPath\":\"{escapedBin}\"}}";
     }
 
-    private static async Task<string> SaveBinAsync(byte[] binData, string safeProjectName)
+    private async Task<string> SaveBinAsync(byte[] binData, string safeProjectName)
     {
         Directory.CreateDirectory(_proyectosDir);
         var destPath = Path.Combine(_proyectosDir, $"{safeProjectName}.bin");
