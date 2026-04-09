@@ -456,6 +456,22 @@ export default function DeviceManager() {
 
     appendFwLog(`Puerto: ${portName}`);
     appendFwLog(`Archivo: ${binPath}`);
+
+    // Cerrar el puerto Web Serial si está abierto — esptool necesita acceso exclusivo
+    if (serialPort) {
+      appendFwLog('Cerrando conexión serial para liberar el puerto...');
+      try {
+        readerRef.current?.cancel();
+        readerRef.current = null;
+        await serialPort.close();
+      } catch { /* ignorar si ya estaba cerrado */ }
+      setSerialPort(null);
+      setSerialStatus('idle');
+      addLog('Puerto cerrado para flash (reconecta después)', 'info');
+      // Pequeña pausa para que el SO libere el puerto
+      await new Promise(r => setTimeout(r, 800));
+    }
+
     appendFwLog('Iniciando esptool...');
 
     const response = await fetch('/api/firmware/flash-stream', {
@@ -490,7 +506,7 @@ export default function DeviceManager() {
       }
     }
     if (!finalResult?.success) throw new Error(finalResult?.error || 'Error en esptool');
-  }, []);
+  }, [serialPort, addLog]);
 
   // Flash OTA via HTTP (solo si el ESP32 ya tiene el firmware con /api/firmware)
   const flashViaOTA = useCallback(async (binFile, ip, port, appendFwLog) => {
